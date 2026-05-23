@@ -11,27 +11,6 @@
 #include "ModbusHandler.h"
 #include "WiFiManager.h"
 
-#define CSS_L "body{font-family:sans-serif;background:#eef1f5;color:#333;padding:16px}" \
-    "h1{font-size:1.5em;color:#1a237e;margin-bottom:8px}" \
-    "h2{font-size:1.2em;color:#283593;margin:16px 0 8px;border-bottom:2px solid #c5cae9}" \
-    ".nav{background:#1a237e;border-radius:8px;display:flex;flex-wrap:wrap;margin-bottom:16px}" \
-    ".nav a{color:#fff;padding:12px 20px;text-decoration:none}" \
-    ".nav a.on{background:#3949ab}" \
-    ".card{background:#fff;border-radius:8px;padding:16px;margin:12px 0;box-shadow:0 2px 6px rgba(0,0,0,.08)}" \
-    "table{width:100%;border-collapse:collapse;font-size:.9em}" \
-    "th{background:#e8eaf6;padding:8px 6px;text-align:left;font-weight:600}" \
-    "td{padding:6px;border-bottom:1px solid #e0e0e0}" \
-    "label{display:block;margin:8px 0 4px;font-weight:600;font-size:.9em}" \
-    "input{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px}" \
-    ".btn{background:#1a237e;color:#fff;border:none;padding:10px 24px;border-radius:4px;cursor:pointer}" \
-    "footer{text-align:center;margin-top:24px;font-size:.8em;color:#999}"
-
-#define NAV \
-    "</head><body><div class=nav>" \
-    "<a href='/' class=on>Dashboard</a>" \
-    "<a href='/config'>Configurazione</a>" \
-    "<a href='/api/data' target=_blank>API JSON</a></div>"
-
 class WebInterface {
 public:
     void begin(GatewayConfig* cfg, ModbusHandler* mh, WiFiManagerClass* wm) {
@@ -76,21 +55,6 @@ private:
         server.send(code, "application/json", json);
     }
 
-    void testata(String& h, const char* titolo) {
-        h += "<!DOCTYPE html><html><head><meta charset=UTF-8>"
-            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>";
-        h += titolo;
-        h += " - HW364A Gateway</title><style>";
-        h += CSS_L;
-        h += NAV;
-    }
-
-    void fondo(String& h) {
-        h += "<footer>HW364A Gateway Industriale &mdash; "
-            + String(__DATE__) + "</footer></body></html>";
-    }
-
     // --- DASHBOARD ---
     void handleDashboard() {
         if (wifiMgr->isAPMode()) {
@@ -106,9 +70,10 @@ private:
             "body{font-family:sans-serif;background:#eef1f5;color:#333;padding:16px;margin:0}"
             "h2{color:#1a237e}.card{background:#fff;border-radius:8px;padding:16px;margin:12px 0;box-shadow:0 2px 6px #00000014}"
             "table{width:100%;border-collapse:collapse;font-size:.9em}"
-            "th{background:#e8eaf6;padding:8px;text-align:left}"
-            "td{padding:6px;border-bottom:1px solid #e0e0e0}"
-            ".btn{background:#1a237e;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer}"
+            "th{background:#e8eaf6;padding:8px;text-align:left;font-weight:600}"
+            "td{padding:6px;border-bottom:1px solid #e0e0e0;text-align:right}"
+            "td:first-child{text-align:center}td:nth-child(2){text-align:left}"
+            ".ok{color:#2e7d32}.err{color:#c62828}.warn{color:#f57f17}"
             "footer{text-align:center;margin-top:24px;font-size:.8em;color:#999}"
             ".nav{background:#1a237e;border-radius:8px;padding:8px 0;margin-bottom:16px}"
             ".nav a{color:#fff;padding:8px 16px;text-decoration:none;display:inline-block}"
@@ -116,12 +81,39 @@ private:
             "<div class=nav><a href='/' class=on>Dashboard</a><a href='/config'>Configurazione</a><a href='/api/data' target=_blank>API JSON</a></div>"
             "<div class=card>"
             "<h2>Gateway HW364A</h2>"
-            "<p><b>IP:</b> " + wifiMgr->getIP() + "<br>"
-            "<b>WiFi:</b> " + wifiMgr->getStato() + "<br>"
-            "<b>MQTT:</b> " + String(config->mqttEnabled ? "abilitato" : "disabilitato") + "<br>"
-            "<b>ModbusTCP:</b> " + String(config->modbusTcpEnabled ? "porta " + String(config->tcpPort) : "disabilitato") + "</p>"
+            "<p><b>IP:</b> " + wifiMgr->getIP() + " &nbsp; <b>WiFi:</b> " + wifiMgr->getStato()
+            + "<br><b>MQTT:</b> " + String(config->mqttEnabled ? "abilitato" : "disabilitato")
+            + " &nbsp; <b>ModbusTCP:</b> " + String(config->modbusTcpEnabled ? "porta " + String(config->tcpPort) : "disabilitato")
+            + " &nbsp; <b id=agg>aggiornamento...</b></p>"
             "</div>"
+            "<div class=card><h2>Registri PLC"
+            "<span style='float:right;font-size:.7em;font-weight:normal' id=plcStat>attendere...</span></h2>"
+            "<table><tr><th>#</th><th>Nome</th><th>Raw</th><th>Scalato</th></tr>";
+        for (int i = 0; i < NUM_REGS; i++) {
+            h += "<tr><td>" + String(i) + "</td><td>" + String(config->regNames[i]) + "</td>"
+                "<td id=r" + String(i) + ">--</td><td id=s" + String(i) + ">--</td></tr>";
+        }
+        h += "</table></div>"
             "<footer>HW364A Gateway</footer>"
+            "<script>"
+            "var XHR=new XMLHttpRequest();"
+            "function aggiorna(){"
+            "XHR.onreadystatechange=function(){if(XHR.readyState==4&&XHR.status==200){"
+            "var d=JSON.parse(XHR.responseText);"
+            "document.getElementById('agg').textContent=new Date(d.ts).toLocaleTimeString();"
+            "document.getElementById('plcStat').textContent=d.valid?'OK':'NO DATI';"
+            "document.getElementById('plcStat').className=d.valid?'ok':'err';"
+            "for(var i=0;i<d.regs.length;i++){"
+            "document.getElementById('r'+i).textContent=d.regs[i];"
+            "document.getElementById('s'+i).textContent=d.scaled[i].toFixed(1);"
+            "}"
+            "}};"
+            "XHR.open('GET','/api/data',true);"
+            "XHR.send();"
+            "}"
+            "setInterval(aggiorna,3000);"
+            "aggiorna();"
+            "</script>"
             "</body></html>";
         server.send(200, "text/html", h);
     }
